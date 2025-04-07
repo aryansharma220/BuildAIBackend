@@ -9,19 +9,14 @@ const userSchema = new mongoose.Schema({
   },
   email: {
     type: String,
-    required: true,
-    unique: true
+    required: true
   },
   displayName: String,
   photoURL: String,
   preferences: {
-    categories: [{
-      type: String,
-      enum: ['llm', 'computer_vision', 'reinforcement_learning', 'nlp', 'mlops', 'multimodal', 'research', 'ai_tools']
-    }],
+    categories: [String], // Allow any string categories for flexibility
     digestFrequency: {
       type: String,
-      enum: ['daily', 'weekly'],
       default: 'daily'
     },
     notificationsEnabled: {
@@ -30,10 +25,7 @@ const userSchema = new mongoose.Schema({
     }
   },
   readHistory: [{
-    digestId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Digest'
-    },
+    digestId: String,
     readAt: {
       type: Date,
       default: Date.now
@@ -46,29 +38,20 @@ const userSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   collection: 'users',
-  strict: false // Allow fields not specified in schema temporarily for debugging
+  strict: false // Allow fields not specified in schema
 });
 
 // Create index for faster queries
 userSchema.index({ 'uid': 1 });
-userSchema.index({ 'preferences.categories': 1 });
-userSchema.index({ 'readHistory.digestId': 1 });
 
-// Add a pre-save hook for logging
+// Simple logging for debugging
 userSchema.pre('save', function(next) {
-  console.log(`Saving user with uid: ${this.uid}, email: ${this.email}`);
+  console.log(`Saving user with uid: ${this.uid}`);
   next();
 });
 
-// Add pre-findOne hook
-userSchema.pre('findOne', function() {
-  console.log(`Finding user with criteria: ${JSON.stringify(this.getQuery())}`);
-});
-
-// Add pre-findOneAndUpdate hook
 userSchema.pre('findOneAndUpdate', function() {
-  console.log(`Updating user with criteria: ${JSON.stringify(this.getQuery())}`);
-  console.log(`Update data: ${JSON.stringify(this.getUpdate())}`);
+  console.log(`Updating user: ${JSON.stringify(this.getQuery())}`);
 });
 
 const User = mongoose.model('User', userSchema);
