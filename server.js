@@ -33,7 +33,6 @@ if (!firebaseAdmin) {
 // Now import modules that depend on environment variables
 const express = require('express');
 const corsMiddleware = require('./middleware/corsMiddleware');
-const mongoose = require('mongoose');
 const digestRoutes = require('./routes/digestRoutes');
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
@@ -41,7 +40,6 @@ const systemRoutes = require('./routes/systemRoutes');
 const authMiddleware = require('./middleware/authMiddleware');
 const securityHeaders = require('./middleware/securityHeaders');
 const requestLogger = require('./middleware/requestLoggerMiddleware');
-const setupMongoDBDebugging = require('./middleware/dbDebugMiddleware');
 const { checkEnvironmentVariables } = require('./util/envChecker');
 
 // Check environment variables at startup
@@ -49,9 +47,6 @@ const envStatus = checkEnvironmentVariables();
 if (!envStatus.isValid) {
   console.warn('Server starting with invalid environment configuration');
 }
-
-// Setup MongoDB debugging if enabled
-setupMongoDBDebugging();
 
 // Initialize Express app
 const app = express();
@@ -70,15 +65,6 @@ app.use(securityHeaders);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI, {
-  dbName: process.env.DB_NAME || 'aidigest',
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-  .then(() => console.log(`Connected to MongoDB - ${process.env.DB_NAME || 'aidigest'}`))
-  .catch(err => console.error('MongoDB connection error:', err));
-
 // Routes
 app.use('/api/system', systemRoutes); // Unprotected system routes
 app.use('/api/digests', digestRoutes);
@@ -87,7 +73,10 @@ app.use('/api/auth', authRoutes);
 
 // Health check route
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+  res.status(200).json({ 
+    status: 'ok',
+    firestore: firebaseAdmin && firebaseAdmin.apps.length > 0 ? 'connected' : 'not connected'
+  });
 });
 
 app.get('/', (req, res) => {

@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const User = require('../models/userModel');
-const mongoose = require('mongoose');
+const { getFirestore } = require('../config/firestoreConfig');
+
+// Collection name for users
+const USERS_COLLECTION = 'users';
 
 /**
  * GET /api/user/profile
@@ -11,43 +13,56 @@ router.get('/profile', async (req, res) => {
   try {
     console.log('GET /api/user/profile called for uid:', req.user.uid);
     
-    // Find or create a basic user entry
-    let user = await User.findOne({ uid: req.user.uid });
+    const db = getFirestore();
+    const userRef = db.collection(USERS_COLLECTION).doc(req.user.uid);
+    const userDoc = await userRef.get();
     
-    if (!user) {
+    if (!userDoc.exists) {
       // Create a minimal user entry
-      user = new User({
+      const userData = {
         uid: req.user.uid,
         email: req.user.email,
         displayName: req.user.displayName || '',
-        lastLogin: new Date(),
+        lastLogin: new Date().toISOString(),
         preferences: {
           categories: [],
           digestFrequency: 'daily',
           notificationsEnabled: true
-        }
-      });
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
       
       try {
-        await user.save();
+        await userRef.set(userData);
         console.log('Created minimal user record for:', req.user.uid);
+        
+        // Return the newly created user data
+        return res.status(200).json(userData);
       } catch (saveError) {
-        console.error('Error saving new user:', saveError);
-        // We'll still return some data even if save fails
+        console.error('Error saving new user to Firestore:', saveError);
+        // We'll still return minimal data even if save fails
       }
     }
     
-    // Return user data (either from DB or newly created)
+    // Get the user data
+    const userData = userDoc.data();
+    
+    // Update last login time
+    userRef.update({ lastLogin: new Date().toISOString() })
+      .catch(err => console.error('Error updating last login:', err));
+    
+    // Return user data
     res.status(200).json({
       uid: req.user.uid,
       email: req.user.email,
-      displayName: user.displayName || '',
-      preferences: user.preferences || {
+      displayName: userData.displayName || '',
+      preferences: userData.preferences || {
         categories: [],
         digestFrequency: 'daily',
         notificationsEnabled: true
       },
-      lastLogin: new Date()
+      lastLogin: new Date().toISOString()
     });
   } catch (error) {
     console.error('Error handling user profile:', error);
@@ -74,35 +89,56 @@ router.post('/profile', async (req, res) => {
   try {
     console.log('POST /api/user/profile called for uid:', req.user.uid);
     
-    // Only update; don't create a full profile
+    const db = getFirestore();
+    const userRef = db.collection(USERS_COLLECTION).doc(req.user.uid);
+    const userDoc = await userRef.get();
+    
+    // Update data with timestamp
     const updateData = {
-      lastLogin: new Date()
+      lastLogin: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
     
     if (req.body.displayName) updateData.displayName = req.body.displayName;
     if (req.body.photoURL) updateData.photoURL = req.body.photoURL;
     
-    // Find and update or create minimal record
-    const user = await User.findOneAndUpdate(
-      { uid: req.user.uid },
-      { $set: updateData },
-      { 
-        new: true, 
-        upsert: true,
-        setDefaultsOnInsert: true
-      }
-    );
-    
-    res.status(200).json({
-      uid: req.user.uid,
-      email: req.user.email,
-      displayName: user.displayName || '',
-      preferences: user.preferences || {
-        categories: [],
-        digestFrequency: 'daily',
-        notificationsEnabled: true
-      }
-    });
+    if (userDoc.exists) {
+      // Update existing user
+      await userRef.update(updateData);
+      const updatedDoc = await userRef.get();
+      const userData = updatedDoc.data();
+      
+      res.status(200).json({
+        uid: req.user.uid,
+        email: req.user.email,
+        displayName: userData.displayName || '',
+        preferences: userData.preferences || {
+          categories: [],
+          digestFrequency: 'daily',
+          notificationsEnabled: true
+        }
+      });
+    } else {
+      // Create a new user document
+      const userData = {
+        uid: req.user.uid,
+        email: req.user.email,
+        displayName: req.body.displayName || '',
+        photoURL: req.body.photoURL || '',
+        lastLogin: new Date().toISOString(),
+        preferences: {
+          categories: [],
+          digestFrequency: 'daily',
+          notificationsEnabled: true
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      await userRef.set(userData);
+      
+      res.status(200).json(userData);
+    }
   } catch (error) {
     console.error('Error updating basic user data:', error);
     res.status(200).json({
@@ -119,19 +155,33 @@ router.post('/profile', async (req, res) => {
  */
 router.get('/preferences', async (req, res) => {
   try {
-    const user = await User.findOne({ uid: req.user.uid });
+    const db = getFirestore();
+    const userRef = db.collection(USERS_COLLECTION).doc(req.user.uid);
+    const userDoc = await userRef.get();
     
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    if (!userDoc.exists) {
+      // Return default preferences if user doesn't exist
+      return res.status(200).json({
+        categories: [],
+        digestFrequency: 'daily',
+        notificationsEnabled: true
+      });
     }
     
-    res.status(200).json(user.preferences || {});
+    const userData = userDoc.data();
+    
+    // Return preferences with defaults if missing
+    res.status(200).json(userData.preferences || {
+      categories: [],
+      digestFrequency: 'daily',
+      notificationsEnabled: true
+    });
   } catch (error) {
-    console.error('Error fetching user preferences:', error);
-    res.status(500).json({ 
-      message: 'Error fetching user preferences', 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    console.error('Error fetching preferences:', error);
+    res.status(200).json({
+      categories: [],
+      digestFrequency: 'daily',
+      notificationsEnabled: true
     });
   }
 });
@@ -154,24 +204,30 @@ router.post('/preferences', async (req, res) => {
       notificationsEnabled: notificationsEnabled !== undefined ? notificationsEnabled : true
     };
     
-    // Find and update the user's preferences, creating a minimal record if needed
-    const user = await User.findOneAndUpdate(
-      { uid: req.user.uid },
-      { 
-        $set: { 
-          preferences,
-          email: req.user.email, // Ensure we have this basic info
-          lastLogin: new Date()
-        }
-      },
-      { 
-        new: true, 
-        upsert: true,
-        setDefaultsOnInsert: true
-      }
-    );
+    const db = getFirestore();
+    const userRef = db.collection(USERS_COLLECTION).doc(req.user.uid);
+    const userDoc = await userRef.get();
     
-    res.status(200).json(user.preferences);
+    if (userDoc.exists) {
+      // Update existing user's preferences
+      await userRef.update({ 
+        preferences,
+        updatedAt: new Date().toISOString()
+      });
+    } else {
+      // Create a new user with preferences
+      await userRef.set({
+        uid: req.user.uid,
+        email: req.user.email,
+        displayName: '',
+        preferences,
+        lastLogin: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    }
+    
+    res.status(200).json(preferences);
   } catch (error) {
     console.error('Error updating preferences:', error);
     res.status(200).json({
@@ -186,70 +242,8 @@ router.post('/preferences', async (req, res) => {
 });
 
 /**
- * PATCH /api/user/preferences
- * Update user preferences
- */
-router.patch('/preferences', async (req, res) => {
-  try {
-    const { categories, digestFrequency, notificationsEnabled } = req.body;
-    
-    // Validate input data
-    if (digestFrequency && !['daily', 'weekly'].includes(digestFrequency)) {
-      return res.status(400).json({ message: 'Invalid digest frequency. Must be "daily" or "weekly"' });
-    }
-    
-    const updateData = {};
-    if (categories !== undefined) updateData['preferences.categories'] = categories;
-    if (digestFrequency !== undefined) updateData['preferences.digestFrequency'] = digestFrequency;
-    if (notificationsEnabled !== undefined) updateData['preferences.notificationsEnabled'] = notificationsEnabled;
-    
-    const user = await User.findOneAndUpdate(
-      { uid: req.user.uid },
-      { $set: updateData },
-      { new: true }
-    );
-    
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    
-    res.status(200).json(user.preferences);
-  } catch (error) {
-    console.error('Error updating user preferences:', error);
-    res.status(500).json({ 
-      message: 'Error updating user preferences', 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
-
-/**
- * GET /api/user/history
- * Get user's read history
- */
-router.get('/history', async (req, res) => {
-  try {
-    const user = await User.findOne({ uid: req.user.uid });
-    
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    
-    res.status(200).json(user.readHistory || []);
-  } catch (error) {
-    console.error('Error fetching user history:', error);
-    res.status(500).json({ 
-      message: 'Error fetching user history', 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
-
-/**
  * POST /api/user/history
- * Add digest to user's read history
+ * Add a digest to user's read history
  */
 router.post('/history', async (req, res) => {
   try {
@@ -259,86 +253,82 @@ router.post('/history', async (req, res) => {
       return res.status(400).json({ message: 'Digest ID is required' });
     }
     
-    const updatedUser = await User.findOneAndUpdate(
-      { uid: req.user.uid },
-      { 
-        $push: { 
-          readHistory: {
-            digestId,
-            readAt: new Date()
-          }
-        }
-      },
-      { new: true, upsert: true }
-    );
+    const db = getFirestore();
+    const userRef = db.collection(USERS_COLLECTION).doc(req.user.uid);
+    const userDoc = await userRef.get();
     
-    res.status(200).json(updatedUser.readHistory || []);
+    // Current timestamp
+    const readAt = new Date().toISOString();
+    
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      const history = userData.readHistory || [];
+      
+      // Add to history if not already present
+      if (!history.some(item => item.digestId === digestId)) {
+        history.push({ digestId, readAt });
+        
+        // Update the document
+        await userRef.update({ 
+          readHistory: history,
+          updatedAt: new Date().toISOString()
+        });
+      }
+      
+      res.status(200).json({ 
+        message: 'Read history updated',
+        history 
+      });
+    } else {
+      // Create a new user with read history
+      const newUser = {
+        uid: req.user.uid,
+        email: req.user.email,
+        readHistory: [{ digestId, readAt }],
+        preferences: {
+          categories: [],
+          digestFrequency: 'daily',
+          notificationsEnabled: true
+        },
+        lastLogin: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      await userRef.set(newUser);
+      
+      res.status(200).json({ 
+        message: 'Read history created',
+        history: newUser.readHistory 
+      });
+    }
   } catch (error) {
-    console.error('Error updating user history:', error);
-    res.status(500).json({ 
-      message: 'Error updating user history', 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
+    console.error('Error updating read history:', error);
+    res.status(500).json({ message: 'Failed to update read history' });
   }
 });
 
 /**
- * GET /api/user/debug
- * Debug endpoint to verify database connection and user collection access
+ * GET /api/user/history
+ * Get user's read history
  */
-router.get('/debug', async (req, res) => {
+router.get('/history', async (req, res) => {
   try {
-    // Check MongoDB connection
-    const connectionState = mongoose.connection.readyState;
-    const connectionStates = {
-      0: 'disconnected',
-      1: 'connected',
-      2: 'connecting',
-      3: 'disconnecting'
-    };
+    const db = getFirestore();
+    const userRef = db.collection(USERS_COLLECTION).doc(req.user.uid);
+    const userDoc = await userRef.get();
     
-    // Check if we can list collections
-    let collections = [];
-    try {
-      collections = await mongoose.connection.db.listCollections().toArray();
-    } catch (err) {
-      console.error('Error listing collections:', err);
+    if (!userDoc.exists) {
+      return res.status(200).json({ history: [] });
     }
     
-    // Check if we can count users
-    let usersCount = 0;
-    try {
-      usersCount = await User.countDocuments();
-    } catch (err) {
-      console.error('Error counting users:', err);
-    }
+    const userData = userDoc.data();
+    const history = userData.readHistory || [];
     
-    // Return debug info
-    res.status(200).json({
-      mongoConnection: {
-        state: connectionStates[connectionState],
-        readyState: connectionState,
-        host: mongoose.connection.host,
-        name: mongoose.connection.name
-      },
-      collections: collections.map(c => c.name),
-      usersCollection: {
-        exists: collections.some(c => c.name === 'users'),
-        count: usersCount
-      },
-      user: req.user ? {
-        uid: req.user.uid,
-        email: req.user.email
-      } : null
-    });
+    res.status(200).json({ history });
   } catch (error) {
-    console.error('Database debug error:', error);
-    res.status(500).json({ 
-      message: 'Database debug error', 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
+    console.error('Error fetching read history:', error);
+    res.status(500).json({ message: 'Failed to fetch read history', history: [] });
   }
 });
 

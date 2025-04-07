@@ -113,4 +113,45 @@ router.get('/db-test', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/system/firestore-test
+ * Test Firestore connectivity
+ */
+router.get('/firestore-test', async (req, res) => {
+  try {
+    const admin = require('../config/firebaseAdmin');
+    const db = admin.firestore();
+    
+    // Check if we can perform a simple operation
+    const testDoc = await db.collection('system').doc('test').set({
+      testTimestamp: new Date().toISOString(),
+      message: 'Firestore test document'
+    });
+    
+    // Try to read it back
+    const docRef = db.collection('system').doc('test');
+    const doc = await docRef.get();
+    
+    if (!doc.exists) {
+      return res.status(500).json({
+        message: 'Firestore write succeeded but read failed',
+        success: false
+      });
+    }
+    
+    res.status(200).json({
+      message: 'Firestore connection test successful',
+      success: true,
+      data: doc.data()
+    });
+  } catch (error) {
+    console.error('Firestore test error:', error);
+    res.status(500).json({
+      message: 'Firestore connection test failed',
+      error: error.message,
+      success: false
+    });
+  }
+});
+
 module.exports = router;

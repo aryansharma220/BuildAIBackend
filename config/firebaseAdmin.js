@@ -1,71 +1,63 @@
 const admin = require('firebase-admin');
+const { initializeFirestore } = require('./firestoreConfig');
 
-/**
- * Initialize Firebase Admin SDK
- */
+// Function to initialize Firebase Admin SDK
 const initializeFirebaseAdmin = () => {
-  if (!admin.apps.length) {
-    console.log('Initializing Firebase Admin SDK with env vars');
-    
-    // Check for required variables
-    if (!process.env.FIREBASE_PROJECT_ID) {
-      console.error('Missing FIREBASE_PROJECT_ID environment variable!');
-    }
-    if (!process.env.FIREBASE_CLIENT_EMAIL) {
-      console.error('Missing FIREBASE_CLIENT_EMAIL environment variable!');
-    }
-    if (!process.env.FIREBASE_PRIVATE_KEY) {
-      console.error('Missing FIREBASE_PRIVATE_KEY environment variable!');
-    }
-    
-    // Always attempt to initialize - even with partial config
-    try {
-      // Safely handle environment variables
-      const privateKey = process.env.FIREBASE_PRIVATE_KEY 
-        ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') 
-        : '';
-      
-      // Log the first few characters of private key to verify it's loaded correctly
-      if (privateKey) {
-        console.log('Private key starts with:', privateKey.substring(0, 20) + '...');
-      } else {
-        console.error('FIREBASE_PRIVATE_KEY is empty or undefined');
-      }
-      
-      // Initialize the app with whatever credentials are available
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID || 'dummy-project-id',
-          privateKey: privateKey || '-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n',
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL || 'example@firebase.com'
-        })
-      });
-      
-      console.log('Firebase Admin SDK initialized successfully');
+  try {
+    // Check if Firebase Admin is already initialized
+    if (admin.apps.length) {
+      console.log('Firebase Admin SDK already initialized');
       return admin;
-    } catch (error) {
-      console.error('Error initializing Firebase Admin SDK:', error);
-      console.error('Error details:', error.stack);
+    }
+    
+    let config;
+    
+    // Check if we're using environment variables or service account JSON
+    if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+      // Initialize with environment variables
+      config = {
+        credential: admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          // Replace escaped newlines in the private key
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+        })
+      };
       
-      // Try alternative initialization with direct JSON if available
+      console.log('Initializing Firebase Admin SDK with environment variables');
+    } else {
+      // Try to use local service account file (for development)
       try {
-        console.log('Attempting alternative initialization...');
-        admin.initializeApp();
-        console.log('Firebase Admin SDK initialized via default credentials');
-        return admin;
-      } catch (altError) {
-        console.error('Alternative initialization also failed:', altError.message);
-        // Return admin anyway to prevent null issues
-        return admin;
+        const serviceAccount = require('../service-account.json');
+        config = {
+          credential: admin.credential.cert(serviceAccount)
+        };
+        console.log('Initializing Firebase Admin SDK with service account file');
+      } catch (err) {
+        console.error('Failed to load service account file, and no environment variables set:', err);
+        throw new Error('Firebase Admin SDK initialization failed: No valid credentials');
       }
     }
-  } else {
-    console.log('Firebase Admin SDK already initialized');
+    
+    // Initialize the app
+    admin.initializeApp(config);
+    console.log('Firebase Admin SDK initialized successfully');
+    
+    // Initialize Firestore
+    initializeFirestore();
+    
     return admin;
+  } catch (error) {
+    console.error('Error initializing Firebase Admin SDK:', error);
+    throw error;
   }
 };
 
-// Initialize on module import
-const firebaseAdmin = initializeFirebaseAdmin();
+// Initialize Firebase Admin at module load time
+try {
+  initializeFirebaseAdmin();
+} catch (error) {
+  console.error('Failed to initialize Firebase Admin SDK at startup:', error);
+}
 
-module.exports = firebaseAdmin;
+module.exports = admin;
