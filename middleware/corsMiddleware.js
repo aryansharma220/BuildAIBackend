@@ -11,13 +11,16 @@ const corsMiddleware = (req, res, next) => {
   
   // Set CORS headers
   if (origin && allowedOrigins.includes(origin)) {
+    // Set the specific origin instead of wildcard when credentials are used
     res.setHeader('Access-Control-Allow-Origin', origin);
     console.log(`Allowed CORS for: ${origin}`);
   } else if (!origin) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // For requests without origin, we can use wildcard
+    // But note that credentials won't work with wildcard
     res.setHeader('Access-Control-Allow-Origin', '*');
   } else {
     console.log(`Blocked CORS for: ${origin}`);
+    // Don't set any CORS headers for blocked origins
   }
   
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');

@@ -32,7 +32,7 @@ if (!firebaseAdmin) {
 
 // Now import modules that depend on environment variables
 const express = require('express');
-const cors = require('cors');
+const corsMiddleware = require('./middleware/corsMiddleware');
 const mongoose = require('mongoose');
 const digestRoutes = require('./routes/digestRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -60,37 +60,8 @@ const PORT = process.env.PORT || 5000;
 // Apply request logger middleware first to log all requests
 app.use(requestLogger);
 
-// Parse CORS_ORIGIN from env var to get an array of allowed origins
-const allowedOrigins = process.env.CORS_ORIGIN 
-  ? process.env.CORS_ORIGIN.split(',') 
-  : ['https://build-ai-digest.vercel.app', 'http://localhost:3000', 'http://localhost:5173'];
-
-console.log("Allowed Origins:", allowedOrigins);
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log("Blocked origin:", origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-};
-
-// Apply CORS middleware with options
-app.use(cors(corsOptions));
-
-// Handle preflight requests explicitly
-app.options('*', cors(corsOptions));
+// Apply our custom CORS middleware
+app.use(corsMiddleware);
 
 // Apply security headers middleware
 app.use(securityHeaders);
